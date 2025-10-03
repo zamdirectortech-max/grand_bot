@@ -1,0 +1,214 @@
+import os
+import json
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Updater, CommandHandler, MessageHandler, Filters,
+    CallbackContext, CallbackQueryHandler
+)
+from telegram.error import BadRequest
+from dotenv import load_dotenv
+import openpyxl
+from datetime import datetime
+
+# ====== Настройки ======
+TOKEN = "8346101623:AAGOAzzq3MP6xziGXd8zZnhRcb83uCNYzR4"
+ADMIN_ID = 8211811011  # твой Telegram ID
+LOG_FILE = "questions_log.json"
+
+# ====== Дефолтная база вопросов/ответов ======
+DEFAULT_QUESTIONS = [
+    "Привет", "Здравствуйте", "Сәлем",
+    "Как войти в систему SMART UKGU?",
+    "Что делать если забыл пароль?",
+    "Куда обращаться за поддержкой?",
+    "Когда начинаются занятия?",
+    "Как получить студенческий билет?",
+    "Где находится библиотека?",
+]
+
+DEFAULT_ANSWERS = [
+    "Здравствуйте! 👋 Вы находитесь в официальном Telegram-боте ЮКУ им. М.О. Ауэзова",
+    "Здравствуйте! 👋 Вы находитесь в официальном Telegram-боте ЮКУ им. М.О. Ауэзова",
+    "Сәлем! 👋 Сіз – М. Әуезов атындағы университеттің ресми чат-ботындасыз.",
+    "Вход осуществляется через https://smart.ukgu.kz под логином и паролем.",
+    "Нажмите 'Забыли пароль?' и восстановите через почту или обратитесь в деканат.",
+    "Можно написать в техподдержку университета или в деканат факультета.",
+    "Учебные занятия для первокурсников обычно начинаются в сентябре.",
+    "Студенческий билет оформляется автоматически после зачисления, выдают в деканате.",
+    "Главная библиотека университета находится в главном корпусе. Электронная библиотека: https://elib.auezov.edu.kz",
+]
+
+# ====== Загружаем или создаём knowledge.json ======
+if os.path.exists("knowledge.json"):
+    with open("knowledge.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    questions = data.get("questions", DEFAULT_QUESTIONS.copy())
+    answers = data.get("answers", DEFAULT_ANSWERS.copy())
+else:
+    questions = DEFAULT_QUESTIONS.copy()
+    answers = DEFAULT_ANSWERS.copy()
+
+def save_knowledge():
+    with open("knowledge.json", "w", encoding="utf-8") as f:
+        json.dump({"questions": questions, "answers": answers}, f, ensure_ascii=False, indent=4)
+
+# ====== Логирование вопросов ======
+def log_question(user_id, username, question):
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            logs = json.load(f)
+    else:
+        logs = []
+    logs.append({
+        "user_id": user_id,
+        "username": username or "Неизвестно",
+        "question": question,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(logs, f, ensure_ascii=False, indent=4)
+
+# ====== Экспорт в Excel (только админ) ======
+def export(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        update.message.reply_text("⛔ У вас нет прав.")
+        return
+    if not os.path.exists(LOG_FILE):
+        update.message.reply_text("Нет сохранённых вопросов.")
+        return
+
+    with open(LOG_FILE, "r", encoding="utf-8") as f:
+        logs = json.load(f)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Вопросы студентов"
+    ws.append(["User ID", "Username", "Вопрос", "Дата/время"])
+
+    for log in logs:
+        ws.append([log["user_id"], log["username"], log["question"], log["timestamp"]])
+
+    filename = f"questions_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    wb.save(filename)
+
+    with open(filename, "rb") as f:
+        update.message.reply_document(f, filename=filename)
+    update.message.reply_text("✅ Экспорт завершён.")
+
+# ====== Векторизация ======
+vectorizer = TfidfVectorizer()
+X = vectorizer.fit_transform(questions)
+
+def retrain():
+    global X, vectorizer
+    vectorizer = TfidfVectorizer()
+    X = vectorizer.fit_transform(questions)
+
+def chatbot(query: str):
+    query_vec = vectorizer.transform([query])
+    sims = cosine_similarity(query_vec, X).flatten()
+    best_idx = sims.argmax()
+    if sims[best_idx] < 0.2:
+        return None
+    return answers[best_idx]
+
+# ====== Команда /reset ======
+def reset(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        update.message.reply_text("⛔ У вас нет прав.")
+        return
+    global questions, answers
+    questions = DEFAULT_QUESTIONS.copy()
+    answers = DEFAULT_ANSWERS.copy()
+    retrain()
+    save_knowledge()
+    update.message.reply_text("🔄 База знаний сброшена.")
+
+# ====== Команда /add ======
+def add_answer(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        update.message.reply_text("⛔ У вас нет прав.")
+        return
+    try:
+        text = update.message.text.replace("/add ", "", 1)
+        question, answer = text.split("||")
+        questions.append(question.strip())
+        answers.append(answer.strip())
+        save_knowledge()
+        retrain()
+        update.message.reply_text("✅ Новый ответ добавлен.")
+    except Exception:
+        update.message.reply_text("⚠ Ошибка! Используйте формат:\n/add вопрос || ответ")
+
+# ====== Главное меню ======
+def start(update: Update, context: CallbackContext):
+    keyboard = [
+        [InlineKeyboardButton("🎓 Абитуриентам", callback_data="abit")],
+        [InlineKeyboardButton("📚 Студентам", callback_data="students")],
+        [InlineKeyboardButton("☎ Контакты", callback_data="contacts")],
+        [InlineKeyboardButton("❓ Задать вопрос ИИ", callback_data="ask_ai")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text(
+        "Добро пожаловать в официальный чат-бот ЮКУ им. М.О. Ауэзова!\n\nВыберите раздел:",
+        reply_markup=reply_markup,
+    )
+
+# ====== Обработка кнопок ======
+def button(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    try:
+        if query.data == "abit":
+            query.edit_message_text("🎓 Информация для абитуриентов...")
+        elif query.data == "students":
+            query.edit_message_text("📚 Информация для студентов...")
+        elif query.data == "contacts":
+            query.edit_message_text("☎ Контакты университета: +7 (7252) 32-17-37")
+        elif query.data == "ask_ai":
+            context.user_data["ask_ai"] = True
+            query.edit_message_text("Напишите свой вопрос ИИ 👇")
+    except BadRequest:
+        pass
+
+# ====== Обработка текстовых сообщений ======
+def handle_message(update: Update, context: CallbackContext):
+    user_text = update.message.text
+    user_id = update.effective_user.id
+    if context.user_data.get("ask_ai"):
+        context.user_data["ask_ai"] = False
+        response = chatbot(user_text)
+        if response:
+            update.message.reply_text(response)
+        else:
+            log_question(user_id, update.effective_user.username, user_text)
+            update.message.reply_text(
+                "🤔 К сожалению, я пока не знаю ответа.\n"
+                "Ваш запрос записан, и мы скоро добавим ответ."
+            )
+        return
+    update.message.reply_text("Используйте меню или команду /start 👇")
+
+# ====== Запуск ======
+def main():
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("reset", reset))
+    dp.add_handler(CommandHandler("export", export))
+    dp.add_handler(CommandHandler("add", add_answer))
+    dp.add_handler(CallbackQueryHandler(button))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
+    print("✅ Бот запущен...")
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()

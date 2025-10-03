@@ -1,0 +1,281 @@
+import os
+import json
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Updater,
+    CommandHandler,
+    MessageHandler,
+    Filters,
+    CallbackContext,
+    CallbackQueryHandler,
+)
+from dotenv import load_dotenv
+
+# ====== Загружаем токен ======
+load_dotenv()
+TOKEN = os.getenv("BOT_TOKEN")
+
+# ====== Загружаем или создаём базу ======
+if os.path.exists("knowledge.json"):
+    with open("knowledge.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+        questions = data["questions"]
+        answers = data["answers"]
+else:
+    questions = [
+        "Привет",
+        "Как войти в систему SMART UKGU?",
+        "Что делать если забыл пароль?",
+        "Куда обращаться за поддержкой?",
+    ]
+    answers = [
+        "Здравствуйте! Вы находитесь в официальном Telegram-боте Южно-Казахстанского университета имени М. Ауэзова",
+        "Вход осуществляется через https://smart.ukgu.kz под логином и паролем.",
+        "Нажмите 'Забыли пароль?' и восстановите через почту или обратитесь в деканат.",
+        "Можно написать в техподдержку университета или в деканат факультета.",
+    ]
+
+def save_knowledge():
+    with open("knowledge.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {"questions": questions, "answers": answers},
+            f,
+            ensure_ascii=False,
+            indent=4,
+        )
+
+# ====== Векторизация ======
+vectorizer = TfidfVectorizer()
+X = vectorizer.fit_transform(questions)
+
+def retrain():
+    global X, vectorizer
+    vectorizer = TfidfVectorizer()
+    X = vectorizer.fit_transform(questions)
+
+def chatbot(query):
+    query_vec = vectorizer.transform([query])
+    sims = cosine_similarity(query_vec, X).flatten()
+    best_idx = sims.argmax()
+    if sims[best_idx] < 0.3:  # если уверенность низкая
+        return None
+    return answers[best_idx]
+
+# ====== Главное меню ======
+def start(update: Update, context: CallbackContext):
+    keyboard = [
+        [InlineKeyboardButton("🎓 Абитуриентам", callback_data="abit")],
+        [InlineKeyboardButton("📚 Студентам", callback_data="students")],
+        [InlineKeyboardButton("☎ Контакты", callback_data="contacts")],
+        [InlineKeyboardButton("❓ Задать вопрос ИИ", callback_data="ask_ai")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text(
+        "Добро пожаловать в официальный чат-бот ЮКУ им. М.О. Ауэзова!\n\nВыберите раздел:",
+        reply_markup=reply_markup,
+    )
+
+# ====== Обработка кнопок ======
+def button(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    # --- Абитуриентам ---
+    if query.data == "abit":
+        keyboard = [
+            [InlineKeyboardButton("📄 Документы", callback_data="abit_docs")],
+            [InlineKeyboardButton("🗓 Сроки приёмной комиссии", callback_data="abit_dates")],
+            [InlineKeyboardButton("🎯 Программы", callback_data="abit_programs")],
+            [InlineKeyboardButton("💰 Гранты и стипендии", callback_data="abit_grants")],
+            [InlineKeyboardButton("📞 Контакты приёмной комиссии", callback_data="abit_contacts")],
+            [InlineKeyboardButton("⬅ Назад", callback_data="main_menu")]
+        ]
+        query.edit_message_text(
+            "🎓 Раздел для абитуриентов — выберите интересующий вопрос:", 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "abit_docs":
+        query.edit_message_text(
+            "📄 Для поступления нужны документы:\n\n"
+            "- Заявление на имя ректора\n"
+            "- Аттестат (оригинал)\n"
+            "- Фото 3x4 (6 шт.)\n"
+            "- Копия удостоверения личности\n"
+            "- Медицинская справка (075-У)\n"
+            "- Сертификат ЕНТ (если имеется)\n"
+        )
+
+    elif query.data == "abit_dates":
+        query.edit_message_text(
+            "🗓 Сроки приёма:\n\n"
+            "- Приём заявлений: июль–август\n"
+            "- Экзамены/ЕНТ: июль\n"
+            "- Зачисление: август\n"
+        )
+
+    elif query.data == "abit_programs":
+        query.edit_message_text(
+            "🎯 Программы обучения:\n\n"
+            "- Технические науки\n"
+            "- Естественные науки\n"
+            "- Гуманитарные науки\n"
+            "- Экономика и менеджмент\n"
+            "- Искусство и культура\n\n"
+            "Полный список 👉 www.auezov.edu.kz"
+        )
+
+    elif query.data == "abit_grants":
+        query.edit_message_text(
+            "💰 Гранты и стипендии:\n\n"
+            "- Государственные гранты МОН РК\n"
+            "- Гранты акиматов\n"
+            "- Университетские гранты\n"
+            "- Социальные стипендии\n"
+            "- Именные стипендии\n"
+        )
+
+    elif query.data == "abit_contacts":
+        query.edit_message_text(
+            "📞 Контакты приёмной комиссии:\n\n"
+            "Тел.: +7 (7252) 32-17-37\n"
+            "Email: priem@auezov.edu.kz\n"
+            "Адрес: Шымкент, пр. Тауке хана, 5"
+        )
+
+    # --- Студентам ---
+    elif query.data == "students":
+        keyboard = [
+            [InlineKeyboardButton("📅 Расписание", callback_data="stud_schedule")],
+            [InlineKeyboardButton("💰 Стипендии", callback_data="stud_scholarship")],
+            [InlineKeyboardButton("🏠 Общежитие", callback_data="stud_dorm")],
+            [InlineKeyboardButton("🖥 Личный кабинет", callback_data="stud_cabinet")],
+            [InlineKeyboardButton("📑 Деканат и куратор", callback_data="stud_dekanat")],
+            [InlineKeyboardButton("🏀 Студенческая жизнь", callback_data="stud_life")],
+            [InlineKeyboardButton("🆘 Поддержка", callback_data="stud_support")],
+            [InlineKeyboardButton("⬅ Назад", callback_data="main_menu")],
+        ]
+        query.edit_message_text(
+            "📚 Раздел для студентов — выберите интересующий пункт:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "stud_schedule":
+        query.edit_message_text(
+            "📅 Расписание занятий доступно на сайте: https://auezov.edu.kz\n"
+            "Также можно уточнить в деканате своего факультета."
+        )
+
+    elif query.data == "stud_scholarship":
+        query.edit_message_text(
+            "💰 Стипендии:\n\n"
+            "- Государственная академическая\n"
+            "- Социальная\n"
+            "- Именные и международные\n\n"
+            "Выплаты ежемесячно, уточняйте в бухгалтерии или деканате."
+        )
+
+    elif query.data == "stud_dorm":
+        query.edit_message_text(
+            "🏠 Общежитие:\n\n"
+            "- Заявка через деканат или управление по делам молодежи\n"
+            "- Нужны: удостоверение личности, фото, заявление\n"
+            "- Стоимость проживания: уточняется ежегодно\n"
+            "- Контакты коменданта уточняйте в деканате"
+        )
+
+    elif query.data == "stud_cabinet":
+        query.edit_message_text(
+            "🖥 Личный кабинет студента: https://smart.ukgu.kz\n\n"
+            "Там можно смотреть оценки, расписание, подавать заявки."
+        )
+
+    elif query.data == "stud_dekanat":
+        query.edit_message_text(
+            "📑 Деканат и куратор:\n\n"
+            "- Обращайтесь в деканат факультета\n"
+            "- Куратор помогает с адаптацией и организацией"
+        )
+
+    elif query.data == "stud_life":
+        query.edit_message_text(
+            "🏀 Студенческая жизнь:\n\n"
+            "- Спортивные секции\n"
+            "- Кружки по интересам\n"
+            "- Волонтёрские движения\n"
+            "- Конкурсы и фестивали\n\n"
+            "Следите за анонсами на сайте и в Telegram-каналах."
+        )
+
+    elif query.data == "stud_support":
+        query.edit_message_text(
+            "🆘 Поддержка студентов:\n\n"
+            "- Телефон доверия\n"
+            "- Центр психологической помощи\n"
+            "- Отдел по делам молодежи\n"
+            "- Студсовет факультета"
+        )
+
+    # --- Контакты и ИИ ---
+    elif query.data == "contacts":
+        query.edit_message_text(
+            "☎ Контакты университета:\n\n"
+            "📍 Шымкент, пр. Тауке хана, 5\n"
+            "📞 +7 (7252) 32-17-37\n"
+            "🌐 www.auezov.edu.kz"
+        )
+
+    elif query.data == "ask_ai":
+        query.edit_message_text("Напишите свой вопрос, и я попробую найти ответ 👇")
+
+    elif query.data == "main_menu":
+        keyboard = [
+            [InlineKeyboardButton("🎓 Абитуриентам", callback_data="abit")],
+            [InlineKeyboardButton("📚 Студентам", callback_data="students")],
+            [InlineKeyboardButton("☎ Контакты", callback_data="contacts")],
+            [InlineKeyboardButton("❓ Задать вопрос ИИ", callback_data="ask_ai")],
+        ]
+        query.edit_message_text(
+            "🏠 Главное меню\n\nВыберите раздел:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+# ====== Обработка сообщений ======
+def handle_message(update: Update, context: CallbackContext):
+    user_input = update.message.text
+
+    if "waiting_for_answer" in context.user_data:
+        new_question = context.user_data["waiting_for_answer"]
+        new_answer = user_input
+        questions.append(new_question)
+        answers.append(new_answer)
+        retrain()
+        save_knowledge()
+        update.message.reply_text("✅ Спасибо! Я запомнил этот вопрос.")
+        del context.user_data["waiting_for_answer"]
+        return
+
+    response = chatbot(user_input)
+    if response:
+        update.message.reply_text(response)
+    else:
+        update.message.reply_text("🤔 Я не знаю ответа. Напишите правильный:")
+        context.user_data["waiting_for_answer"] = user_input
+
+# ====== Запуск ======
+def main():
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CallbackQueryHandler(button))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
+    print("✅ Бот запущен...")
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()

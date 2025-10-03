@@ -1,0 +1,124 @@
+import telebot
+from telebot import types
+
+# 🔑 Твой токен и ID админа
+TOKEN = "8346101623:AAGOAzzq3MP6xziGXd8zZnhRcb83uCNYzR4"
+ADMIN_ID = 8211811011
+bot = telebot.TeleBot(TOKEN)
+
+# 📌 Храним выбранный язык пользователей
+user_languages = {}
+
+# --- Команда /start ---
+@bot.message_handler(commands=['start'])
+def start(message):
+    # 🗑 убираем старую ReplyKeyboard
+    remove_markup = types.ReplyKeyboardRemove()
+    bot.send_message(
+        message.chat.id,
+        "👋 Добро пожаловать в официальный чат-бот ЮКУ им. М.О. Ауэзова!\n\nВыберите раздел:",
+        reply_markup=remove_markup
+    )
+
+    # показываем выбор языка
+    choose_language(message)
+
+# --- Меню выбора языка (списком, KZ первым) ---
+def choose_language(message, edit=False, call=None):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    btn1 = types.InlineKeyboardButton("🇰🇿 Қазақша", callback_data="lang_kz")
+    btn2 = types.InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")
+    btn3 = types.InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")
+    markup.add(btn1, btn2, btn3)
+
+    text = "Тілді таңдаңыз / Выберите язык / Choose language:"
+
+    if edit and call:  # если редактируем старое сообщение
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=markup
+        )
+    else:  # если первый запуск
+        bot.send_message(message.chat.id, text, reply_markup=markup)
+
+# --- Обработка выбора языка ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
+def callback_language(call):
+    lang = call.data.split("_")[1]
+    user_languages[call.from_user.id] = lang
+
+    if lang == "ru":
+        text = "🇷🇺 Главное меню:"
+        buttons = [
+            ("🎓 Абитуриентам", "menu_applicants"),
+            ("🎓 Студентам", "menu_students"),
+            ("📞 Контакты", "menu_contacts"),
+            ("❓ Задать вопрос ИИ", "menu_ai"),
+            ("🌐 Сменить язык", "menu_lang")
+        ]
+    elif lang == "kz":
+        text = "🇰🇿 Басты мәзір:"
+        buttons = [
+            ("🎓 Талапкерлерге", "menu_applicants"),
+            ("🎓 Студенттерге", "menu_students"),
+            ("📞 Байланыс", "menu_contacts"),
+            ("❓ Сұрақ қою AI", "menu_ai"),
+            ("🌐 Тілді ауыстыру", "menu_lang")
+        ]
+    else:
+        text = "🇬🇧 Main menu:"
+        buttons = [
+            ("🎓 For Applicants", "menu_applicants"),
+            ("🎓 For Students", "menu_students"),
+            ("📞 Contacts", "menu_contacts"),
+            ("❓ Ask AI", "menu_ai"),
+            ("🌐 Change Language", "menu_lang")
+        ]
+
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for btn_text, btn_callback in buttons:
+        markup.add(types.InlineKeyboardButton(btn_text, callback_data=btn_callback))
+
+    # редактируем старое сообщение
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=text,
+        reply_markup=markup
+    )
+
+# --- Обработка меню ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("menu_"))
+def callback_menu(call):
+    lang = user_languages.get(call.from_user.id, "ru")
+
+    if call.data == "menu_applicants":
+        text = {"ru": "Информация для абитуриентов...",
+                "kz": "Талапкерлерге арналған ақпарат...",
+                "en": "Information for applicants..."}[lang]
+    elif call.data == "menu_students":
+        text = {"ru": "Информация для студентов...",
+                "kz": "Студенттерге арналған ақпарат...",
+                "en": "Information for students..."}[lang]
+    elif call.data == "menu_contacts":
+        text = {"ru": "Контакты университета...",
+                "kz": "Университеттің байланыс нөмірлері...",
+                "en": "University contact information..."}[lang]
+    elif call.data == "menu_ai":
+        text = {"ru": "Напишите ваш вопрос, и я попробую ответить.",
+                "kz": "Сұрағыңызды жазыңыз, жауап беруге тырысамын.",
+                "en": "Type your question, and I’ll try to answer."}[lang]
+    elif call.data == "menu_lang":
+        choose_language(call.message, edit=True, call=call)
+        return
+
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=text
+    )
+
+print("✅ Бот запущен")
+bot.polling(none_stop=True)

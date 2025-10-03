@@ -1,0 +1,217 @@
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+TOKEN = "8346101623:AAGOAzzq3MP6xziGXd8zZnhRcb83uCNYzR4"
+
+user_languages = {}
+
+# --- /start ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇰🇿 Қазақша", callback_data="lang_kz")],
+        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]
+    ])
+    await update.message.reply_text("👋 Тілді таңдаңыз / Выберите язык / Choose language:", reply_markup=markup)
+
+
+# --- Главное меню ---
+async def show_main_menu(query, lang):
+    if lang == "ru":
+        text = "Добро пожаловать в официальный чат-бот ЮКУ им. М.О. Ауэзова! 👋\n\nВыберите раздел:"
+        buttons = [
+            ("🎓 Абитуриентам", "menu_applicants"),
+            ("🎓 Студентам", "menu_students"),
+            ("📞 Контакты", "menu_contacts"),
+            ("❓ Задать вопрос ИИ", "menu_ai"),
+            ("🌐 Сменить язык", "menu_lang")
+        ]
+    elif lang == "kz":
+        text = "Қош келдіңіз ресми чат-ботқа М.О. Әуезов атындағы ОҚУ! 👋\n\nМәзірден бөлімді таңдаңыз:"
+        buttons = [
+            ("🎓 Талапкерлерге", "menu_applicants"),
+            ("🎓 Студенттерге", "menu_students"),
+            ("📞 Байланыс", "menu_contacts"),
+            ("❓ Сұрақ қою AI", "menu_ai"),
+            ("🌐 Тілді ауыстыру", "menu_lang")
+        ]
+    else:
+        text = "Welcome to the official chatbot of M.Auezov South Kazakhstan University! 👋\n\nChoose a section:"
+        buttons = [
+            ("🎓 For Applicants", "menu_applicants"),
+            ("🎓 For Students", "menu_students"),
+            ("📞 Contacts", "menu_contacts"),
+            ("❓ Ask AI", "menu_ai"),
+            ("🌐 Change Language", "menu_lang")
+        ]
+
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton(bt, callback_data=cb)] for bt, cb in buttons])
+    await query.edit_message_text(text=text, reply_markup=markup)
+
+
+# --- Выбор языка ---
+async def callback_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = query.data.split("_")[1]
+    user_languages[query.from_user.id] = lang
+    await show_main_menu(query, lang)
+
+
+# --- Обработка меню ---
+async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = user_languages.get(query.from_user.id, "ru")
+
+    # 🔄 Сменить язык
+    if query.data == "menu_lang":
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🇰🇿 Қазақша", callback_data="lang_kz")],
+            [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
+            [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]
+        ])
+        await query.edit_message_text("👋 Тілді таңдаңыз / Выберите язык / Choose language:", reply_markup=markup)
+        return
+
+    # 🎓 Абитуриентам
+    if query.data == "menu_applicants":
+        if lang == "ru":
+            text = "Информация для абитуриентов:"
+            buttons = [
+                ("📄 Документы", "app_docs"),
+                ("🗓 Сроки приёмной комиссии", "app_dates"),
+                ("🎯 Программы", "app_programs"),
+                ("💰 Гранты и стипендии", "app_grants"),
+                ("📞 Контакты приёмной комиссии", "app_contacts"),
+                ("⬅ Назад", "main_menu")
+            ]
+        elif lang == "kz":
+            text = "Талапкерлерге арналған ақпарат:"
+            buttons = [
+                ("📄 Құжаттар", "app_docs"),
+                ("🗓 Қабылдау мерзімдері", "app_dates"),
+                ("🎯 Бағдарламалар", "app_programs"),
+                ("💰 Гранттар және стипендиялар", "app_grants"),
+                ("📞 Қабылдау комиссиясының байланысы", "app_contacts"),
+                ("⬅ Артқа", "main_menu")
+            ]
+        else:
+            text = "Information for applicants:"
+            buttons = [
+                ("📄 Documents", "app_docs"),
+                ("🗓 Admission dates", "app_dates"),
+                ("🎯 Programs", "app_programs"),
+                ("💰 Grants & Scholarships", "app_grants"),
+                ("📞 Admission contacts", "app_contacts"),
+                ("⬅ Back", "main_menu")
+            ]
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(bt, callback_data=cb)] for bt, cb in buttons])
+        await query.edit_message_text(text=text, reply_markup=markup)
+        return
+
+    # 🎓 Студентам → уровни
+    if query.data == "menu_students":
+        if lang == "ru":
+            text = "Раздел для студентов:\nВыберите уровень обучения:"
+            buttons = [
+                ("🎓 Бакалавриат", "stud_bachelor"),
+                ("🎓 Магистратура", "stud_master"),
+                ("🎓 Докторантура", "stud_phd"),
+                ("⬅ Назад", "main_menu")
+            ]
+        elif lang == "kz":
+            text = "Студенттерге арналған бөлім:\nОқу деңгейін таңдаңыз:"
+            buttons = [
+                ("🎓 Бакалавриат", "stud_bachelor"),
+                ("🎓 Магистратура", "stud_master"),
+                ("🎓 Докторантура", "stud_phd"),
+                ("⬅ Артқа", "main_menu")
+            ]
+        else:
+            text = "For students:\nChoose your study level:"
+            buttons = [
+                ("🎓 Bachelor", "stud_bachelor"),
+                ("🎓 Master", "stud_master"),
+                ("🎓 PhD", "stud_phd"),
+                ("⬅ Back", "main_menu")
+            ]
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(bt, callback_data=cb)] for bt, cb in buttons])
+        await query.edit_message_text(text=text, reply_markup=markup)
+        return
+
+    # Пример вложенного меню: 🎓 Бакалавриат
+    if query.data == "stud_bachelor":
+        if lang == "ru":
+            text = "Информация для студентов (бакалавриат):"
+            buttons = [
+                ("📅 Расписание", "bachelor_schedule"),
+                ("💰 Стипендии", "bachelor_grants"),
+                ("🏠 Общежитие", "bachelor_dorm"),
+                ("🖥 Личный кабинет", "bachelor_lk"),
+                ("📑 Деканат и куратор", "bachelor_dean"),
+                ("🏀 Студенческая жизнь", "bachelor_life"),
+                ("🆘 Поддержка", "bachelor_help"),
+                ("⬅ Назад", "menu_students")
+            ]
+        elif lang == "kz":
+            text = "Бакалавриат студенттеріне арналған ақпарат:"
+            buttons = [
+                ("📅 Сабақ кестесі", "bachelor_schedule"),
+                ("💰 Стипендиялар", "bachelor_grants"),
+                ("🏠 Жатақхана", "bachelor_dorm"),
+                ("🖥 Жеке кабинет", "bachelor_lk"),
+                ("📑 Деканат және куратор", "bachelor_dean"),
+                ("🏀 Студенттік өмір", "bachelor_life"),
+                ("🆘 Қолдау", "bachelor_help"),
+                ("⬅ Артқа", "menu_students")
+            ]
+        else:
+            text = "Information for bachelor students:"
+            buttons = [
+                ("📅 Schedule", "bachelor_schedule"),
+                ("💰 Scholarships", "bachelor_grants"),
+                ("🏠 Dormitory", "bachelor_dorm"),
+                ("🖥 Personal account", "bachelor_lk"),
+                ("📑 Dean & curator", "bachelor_dean"),
+                ("🏀 Student life", "bachelor_life"),
+                ("🆘 Support", "bachelor_help"),
+                ("⬅ Back", "menu_students")
+            ]
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(bt, callback_data=cb)] for bt, cb in buttons])
+        await query.edit_message_text(text=text, reply_markup=markup)
+        return
+
+    # 📞 Контакты
+    if query.data == "menu_contacts":
+        text = "☎ Контакты университета:\n\n📍 Шымкент, пр. Тауке хана, 5\n📞 +7 (7252) 32-17-37\n🌐 www.auezov.edu.kz"
+        await query.edit_message_text(text=text)
+        return
+
+    # 🔙 Назад
+    if query.data == "main_menu":
+        await show_main_menu(query, lang)
+        return
+
+    # ❓ AI
+    if query.data == "menu_ai":
+        texts = {
+            "ru": "Напишите ваш вопрос, и я попробую ответить.",
+            "kz": "Сұрағыңызды жазыңыз, жауап беруге тырысамын.",
+            "en": "Type your question, and I’ll try to answer."
+        }
+        await query.edit_message_text(text=texts[lang])
+        return
+
+
+def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(callback_language, pattern="^lang_"))
+    app.add_handler(CallbackQueryHandler(callback_menu, pattern=".*"))  # все кнопки
+    print("✅ Бот запущен")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
